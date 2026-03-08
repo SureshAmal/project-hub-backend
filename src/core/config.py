@@ -2,6 +2,7 @@ from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Union, Any
 from pydantic import field_validator
+from sqlalchemy.engine import make_url
 
 class Settings(BaseSettings):
     """
@@ -40,6 +41,38 @@ class Settings(BaseSettings):
         elif isinstance(v, (list, str)):
             return v
         raise ValueError(v)
+
+    @field_validator("DATABASE_URL", mode="before")
+    def normalize_database_url(cls, v: Any) -> Any:
+        if not isinstance(v, str) or not v.strip():
+            return v
+
+        try:
+            url = make_url(v.strip())
+        except Exception:
+            return v
+
+        sync_postgres_drivers = {
+            "postgres",
+            "postgresql",
+            "postgres+psycopg",
+            "postgres+psycopg2",
+            "postgres+pg8000",
+            "postgresql+psycopg",
+            "postgresql+psycopg2",
+            "postgresql+pg8000",
+        }
+
+        if url.drivername in sync_postgres_drivers:
+            url = url.set(drivername="postgresql+asyncpg")
+        elif url.drivername == "postgres+asyncpg":
+            url = url.set(drivername="postgresql+asyncpg")
+
+        if url.drivername == "postgresql+asyncpg" and "channel_binding" in url.query:
+            url = url.difference_update_query(["channel_binding"])
+
+        return url.render_as_string(hide_password=False)
+
     model_config = SettingsConfigDict(
         env_file=(".env.example", ".env"), 
         env_file_encoding="utf-8", 
