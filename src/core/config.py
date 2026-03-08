@@ -4,6 +4,49 @@ from typing import Union, Any
 from pydantic import field_validator
 from sqlalchemy.engine import make_url
 
+
+def _normalize_postgres_url(value: Any, *, async_mode: bool) -> Any:
+    if not isinstance(value, str) or not value.strip():
+        return value
+
+    try:
+        url = make_url(value.strip())
+    except Exception:
+        return value
+
+    if async_mode:
+        async_driver_map = {
+            "postgres": "postgresql+asyncpg",
+            "postgresql": "postgresql+asyncpg",
+            "postgres+psycopg": "postgresql+asyncpg",
+            "postgres+psycopg2": "postgresql+asyncpg",
+            "postgres+pg8000": "postgresql+asyncpg",
+            "postgresql+psycopg": "postgresql+asyncpg",
+            "postgresql+psycopg2": "postgresql+asyncpg",
+            "postgresql+pg8000": "postgresql+asyncpg",
+            "postgres+asyncpg": "postgresql+asyncpg",
+        }
+        drivername = async_driver_map.get(url.drivername)
+        if drivername:
+            url = url.set(drivername=drivername)
+    else:
+        sync_driver_map = {
+            "postgres": "postgresql+psycopg2",
+            "postgresql": "postgresql+psycopg2",
+            "postgres+asyncpg": "postgresql+psycopg2",
+            "postgresql+asyncpg": "postgresql+psycopg2",
+            "postgres+psycopg": "postgresql+psycopg2",
+            "postgresql+psycopg": "postgresql+psycopg2",
+        }
+        drivername = sync_driver_map.get(url.drivername)
+        if drivername:
+            url = url.set(drivername=drivername)
+
+    if "channel_binding" in url.query:
+        url = url.difference_update_query(["channel_binding"])
+
+    return url.render_as_string(hide_password=False)
+
 class Settings(BaseSettings):
     """
     Core application settings powered by Pydantic.
@@ -15,6 +58,7 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = ""
+    ALEMBIC_DATABASE_URL: Union[str, None] = None
 
     # Security
     SECRET_KEY: str = ""
@@ -33,6 +77,8 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
     ]
+    FRONTEND_URL: Union[str, None] = None
+    BACKEND_CORS_ORIGIN_REGEX: Union[str, None] = None
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
@@ -42,36 +88,43 @@ class Settings(BaseSettings):
             return v
         raise ValueError(v)
 
+    @field_validator("FRONTEND_URL", "BACKEND_CORS_ORIGIN_REGEX", mode="before")
+    def normalize_optional_url_like_values(cls, v: Any) -> Any:
+        if not isinstance(v, str):
+            return v
+
+        normalized = v.strip()
+        return normalized or None
+
     @field_validator("DATABASE_URL", mode="before")
     def normalize_database_url(cls, v: Any) -> Any:
-        if not isinstance(v, str) or not v.strip():
-            return v
+        return _normalize_postgres_url(v, async_mode=True)
 
-        try:
-            url = make_url(v.strip())
-        except Exception:
-            return v
+    @field_validator("ALEMBIC_DATABASE_URL", mode="before")
+    def normalize_alembic_database_url(cls, v: Any) -> Any:
+        return _normalize_postgres_url(v, async_mode=False)
 
-        sync_postgres_drivers = {
-            "postgres",
-            "postgresql",
-            "postgres+psycopg",
-            "postgres+psycopg2",
-            "postgres+pg8000",
-            "postgresql+psycopg",
-            "postgresql+psycopg2",
-            "postgresql+pg8000",
-        }
+    @property
+    def async_database_url(self) -> str:
+        return str(self.DATABASE_URL)
 
-        if url.drivername in sync_postgres_drivers:
-            url = url.set(drivername="postgresql+asyncpg")
-        elif url.drivername == "postgres+asyncpg":
-            url = url.set(drivername="postgresql+asyncpg")
+    @property
+    def alembic_database_url(self) -> str:
+        if self.ALEMBIC_DATABASE_URL:
+            return str(self.ALEMBIC_DATABASE_URL)
+        return str(_normalize_postgres_url(self.DATABASE_URL, async_mode=False))
 
-        if url.drivername == "postgresql+asyncpg" and "channel_binding" in url.query:
-            url = url.difference_update_query(["channel_binding"])
+    @property
+    def cors_origins(self) -> List[str]:
+        raw_origins = self.BACKEND_CORS_ORIGINS
+        origins = raw_origins if isinstance(raw_origins, list) else [raw_origins]
+        normalized = [origin.rstrip("/") for origin in origins if isinstance(origin, str) and origin.strip()]
 
-        return url.render_as_string(hide_password=False)
+        if self.FRONTEND_URL:
+            normalized.append(self.FRONTEND_URL.rstrip("/"))
+
+        # Preserve order while removing duplicates.
+        return list(dict.fromkeys(normalized))
 
     model_config = SettingsConfigDict(
         env_file=(".env.example", ".env"), 

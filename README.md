@@ -20,14 +20,22 @@ This is the Python backend for the Project Hub platform, built on FastAPI. It ac
 
 ### 2. Environment Configuration
 Copy the `.env.example` file (or create an `.env`) in the `backend-python` root.
-Ensure your `DATABASE_URL` uses the async postgres driver (`postgresql+asyncpg://...`), but points to the *exact same database configuration* as the frontend.
+`DATABASE_URL` is used by the FastAPI runtime and is normalized to `asyncpg` automatically. `ALEMBIC_DATABASE_URL` is optional and can be set when migrations need an explicit sync URL.
 
 Example `.env`:
 ```env
 # Ensure the Secret Key perfectly matches the Next.js NEXTAUTH_SECRET to decode JWTs
 SECRET_KEY="your-nextauth-secret-key"
-DATABASE_URL="postgresql+asyncpg://postgres:password@localhost:5432/projecthub1"
+DATABASE_URL="postgresql://postgres:password@localhost:5432/projecthub1"
+ALEMBIC_DATABASE_URL="postgresql+psycopg2://postgres:password@localhost:5432/projecthub1"
 BACKEND_CORS_ORIGINS='["http://localhost:3000"]'
+```
+
+Neon example:
+
+```env
+DATABASE_URL="postgresql://USER:PASSWORD@HOST/neondb?sslmode=require&channel_binding=require"
+ALEMBIC_DATABASE_URL="postgresql+psycopg2://USER:PASSWORD@HOST/neondb?sslmode=require"
 ```
 
 ### 3. Installation
@@ -104,7 +112,8 @@ This backend can be deployed to Railway using the Docker configuration in [backe
 4. Add the required environment variables:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://...
+DATABASE_URL=postgresql://...
+ALEMBIC_DATABASE_URL=postgresql+psycopg2://...
 SECRET_KEY=your-nextauth-secret
 BACKEND_CORS_ORIGINS=["https://your-frontend-domain.com"]
 GITHUB_TOKEN=optional
@@ -117,7 +126,8 @@ GEMINI_API_KEY=optional
 ```bash
 docker build -t project-hub-backend-python .
 docker run --rm -p 8000:8000 \
-	-e DATABASE_URL="postgresql+asyncpg://..." \
+	-e DATABASE_URL="postgresql://..." \
+	-e ALEMBIC_DATABASE_URL="postgresql+psycopg2://..." \
 	-e SECRET_KEY="your-secret" \
 	-e BACKEND_CORS_ORIGINS='["http://localhost:3000"]' \
 	project-hub-backend-python

@@ -4,7 +4,7 @@ from src.core.config import settings
 
 # Async engine for PostgreSQL
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    settings.async_database_url,
     echo=False,
     future=True,
     pool_pre_ping=True

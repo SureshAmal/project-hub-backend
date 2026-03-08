@@ -1,10 +1,9 @@
-import asyncio
 import os
 import sys
 from logging.config import fileConfig
 
+from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
@@ -27,7 +26,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = str(settings.DATABASE_URL)
+    url = settings.alembic_database_url
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -46,30 +45,26 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    """In this scenario we need to create an Engine
-    and associate a connection with the context.
-    """
+    """Deprecated placeholder kept for compatibility."""
+    raise RuntimeError("Alembic migrations are configured to run with a sync engine.")
+
+
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode."""
     configuration = config.get_section(config.config_ini_section)
     if configuration is None:
         configuration = {}
-    
-    configuration["sqlalchemy.url"] = str(settings.DATABASE_URL)
+ 
+    configuration["sqlalchemy.url"] = settings.alembic_database_url
 
-    connectable = async_engine_from_config(
+    connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
-
-
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    asyncio.run(run_async_migrations())
+    with connectable.connect() as connection:
+        do_run_migrations(connection)
 
 
 if context.is_offline_mode():
