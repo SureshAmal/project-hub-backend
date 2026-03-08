@@ -5,6 +5,12 @@ from pydantic import field_validator
 from sqlalchemy.engine import make_url
 
 
+def _coerce_query_value(value: Any) -> str:
+    if isinstance(value, (list, tuple)):
+        return str(value[0]) if value else ""
+    return str(value)
+
+
 def _normalize_postgres_url(value: Any, *, async_mode: bool) -> Any:
     if not isinstance(value, str) or not value.strip():
         return value
@@ -29,6 +35,12 @@ def _normalize_postgres_url(value: Any, *, async_mode: bool) -> Any:
         drivername = async_driver_map.get(url.drivername)
         if drivername:
             url = url.set(drivername=drivername)
+
+        if "sslmode" in url.query and "ssl" not in url.query:
+            sslmode = _coerce_query_value(url.query.get("sslmode"))
+            url = url.difference_update_query(["sslmode"])
+            if sslmode:
+                url = url.update_query_dict({"ssl": sslmode})
     else:
         sync_driver_map = {
             "postgres": "postgresql+psycopg2",
@@ -41,6 +53,12 @@ def _normalize_postgres_url(value: Any, *, async_mode: bool) -> Any:
         drivername = sync_driver_map.get(url.drivername)
         if drivername:
             url = url.set(drivername=drivername)
+
+        if "ssl" in url.query and "sslmode" not in url.query:
+            ssl = _coerce_query_value(url.query.get("ssl"))
+            url = url.difference_update_query(["ssl"])
+            if ssl:
+                url = url.update_query_dict({"sslmode": ssl})
 
     if "channel_binding" in url.query:
         url = url.difference_update_query(["channel_binding"])
