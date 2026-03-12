@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, not_, or_
+from sqlalchemy import and_, case, func, not_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -74,6 +74,20 @@ def apply_curation_filters(stmt, count_stmt=None):
     return stmt
 
 
+def apply_scraped_project_filters(stmt, count_stmt=None):
+    scraped_filters = [
+        GitHubProject.download_url.is_not(None),
+        GitHubProject.download_url != "",
+        GitHubProject.requirements_text.is_not(None),
+    ]
+
+    stmt = stmt.where(and_(*scraped_filters))
+    if count_stmt is not None:
+        count_stmt = count_stmt.where(and_(*scraped_filters))
+        return stmt, count_stmt
+    return stmt
+
+
 def resolve_sort_column(sort_by: Optional[str]):
     sort_mapping = {
         "createdAt": GitHubProject.created_at,
@@ -88,6 +102,13 @@ def resolve_sort_column(sort_by: Optional[str]):
         "difficulty": GitHubProject.difficulty,
     }
     return sort_mapping.get(sort_by or "stars", GitHubProject.stars)
+
+
+def apply_live_priority_order(stmt, sort_column, order: str):
+    live_priority = case((GitHubProject.live_url.is_not(None), 0), else_=1)
+    if order == "asc":
+        return stmt.order_by(live_priority.asc(), sort_column.asc())
+    return stmt.order_by(live_priority.asc(), sort_column.desc())
 
 
 def apply_difficulty_filter(stmt, count_stmt, difficulty: Optional[str]):
@@ -331,10 +352,7 @@ async def get_github_projects(
 
     # Apply sorting
     sort_column = resolve_sort_column(sortBy)
-    if order == "asc":
-        stmt = stmt.order_by(sort_column.asc())
-    else:
-        stmt = stmt.order_by(sort_column.desc())
+    stmt = apply_live_priority_order(stmt, sort_column, order)
 
     # Apply pagination
     offset = (page - 1) * limit
@@ -442,6 +460,7 @@ async def get_github_projects_by_domain(
     count_stmt = select(func.count()).select_from(GitHubProject)
     stmt = select(GitHubProject).options(selectinload(GitHubProject.domain))
     stmt, count_stmt = apply_curation_filters(stmt, count_stmt)
+    stmt, count_stmt = apply_scraped_project_filters(stmt, count_stmt)
     stmt = stmt.where(GitHubProject.domain_id == domain.id)
     count_stmt = count_stmt.where(GitHubProject.domain_id == domain.id)
 

@@ -192,7 +192,7 @@ def build_headers() -> dict[str, str]:
     return headers
 
 
-def _compute_github_retry_delay(response: httpx.Response) -> float:
+def _compute_github_retry_delay(response: httpx.Response, attempt: int = 1) -> float:
     retry_after = response.headers.get("Retry-After")
     if retry_after:
         try:
@@ -200,20 +200,19 @@ def _compute_github_retry_delay(response: httpx.Response) -> float:
         except ValueError:
             pass
 
-    reset_header = response.headers.get("X-RateLimit-Reset")
-    if reset_header:
-        try:
-            reset_ts = float(reset_header)
-            now_ts = datetime.now(timezone.utc).timestamp()
-            return max(reset_ts - now_ts + 1, 1.0)
-        except ValueError:
-            pass
-
     remaining = response.headers.get("X-RateLimit-Remaining")
     if remaining == "0":
+        reset_header = response.headers.get("X-RateLimit-Reset")
+        if reset_header:
+            try:
+                reset_ts = float(reset_header)
+                now_ts = datetime.now(timezone.utc).timestamp()
+                return max(reset_ts - now_ts + 1, 1.0)
+            except ValueError:
+                pass
         return 60.0
 
-    return 20.0
+    return float(min(10 * (2 ** (attempt - 1)), 120))
 
 
 def normalize_text(*parts: str | None) -> str:
@@ -283,9 +282,6 @@ def is_foundational_or_library_repo(repo: dict[str, Any], readme_text: str, live
 
 
 def has_end_user_project_signals(repo: dict[str, Any], readme_text: str, live_url: str | None) -> bool:
-    if not live_url:
-        return False
-
     metadata_text = normalize_text(repo.get("name"), repo.get("description"), " ".join(repo.get("topics") or []))
     readme_excerpt = normalize_text(readme_text[:5000])
     combined = f"{metadata_text} {readme_excerpt}".strip()
@@ -309,14 +305,13 @@ def has_end_user_project_signals(repo: dict[str, Any], readme_text: str, live_ur
         positive_score += 1
     if any(keyword in combined for keyword in {"screenshots", "demo", "deploy", "hosted", "production"}):
         positive_score += 1
+    if live_url:
+        positive_score += 2
 
     return positive_score >= 4
 
 
 def is_student_buildable_repo(repo: dict[str, Any], readme_text: str, live_url: str | None, min_time: int, max_time: int) -> bool:
-    if not live_url:
-        return False
-
     if max_time > MAX_STUDENT_PROJECT_DURATION:
         return False
 
@@ -643,7 +638,7 @@ def score_repo(repo: dict[str, Any], domain_keywords: set[str], has_readme: bool
     score += min((repo.get("forks_count") or 0) / 50, 20)
     score += keyword_hits * 6
     score += 8 if has_readme else 0
-    score += 8 if has_demo else 0
+    score += 15 if has_demo else 0
     score += 4 if repo.get("language") else 0
     return round(score, 2)
 
@@ -665,7 +660,7 @@ async def github_get(client: httpx.AsyncClient, path: str, params: dict[str, Any
             )
 
             if is_rate_limited and attempt < max_attempts:
-                delay = _compute_github_retry_delay(response)
+                delay = _compute_github_retry_delay(response, attempt)
                 delay = min(max(delay, 1.0), 300.0)
                 print(f"[GitHub] Rate limit hit for {path}. Waiting {math.ceil(delay)}s before retry {attempt}/{max_attempts}...")
                 await asyncio.sleep(delay)
@@ -765,6 +760,7 @@ async def enrich_candidate(
     domain_keywords: set[str],
     client: httpx.AsyncClient,
     use_ai: bool,
+    require_demo: bool = False,
 ) -> ScrapeCandidate:
     owner = repo["owner"]["login"]
     repo_name = repo["name"]
@@ -784,6 +780,9 @@ async def enrich_candidate(
 
     if not has_end_user_project_signals(repo, readme_text, live_url):
         raise ValueError("Repository does not look like an end-user project")
+
+    if require_demo and not live_url:
+        raise ValueError("Repository does not provide a live demo")
 
     tech_stack, technical_skills, tools_used, requirements_text, evaluation_criteria = extract_requirements(
         domain_name, repo, readme_text, languages
@@ -963,12 +962,13 @@ async def scrape_domain_candidates(
                             domain_keywords=config["keywords"],
                             client=client,
                             use_ai=use_ai,
+                            require_demo=require_demo,
                         )
                     except ValueError:
                         stats["enrichment_rejected"] += 1
                         continue
 
-                    if not candidate.live_url:
+                    if require_demo and not candidate.live_url:
                         stats["missing_live_demo"] += 1
                         continue
 
