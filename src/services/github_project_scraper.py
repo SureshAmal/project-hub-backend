@@ -1,11 +1,12 @@
 import asyncio
 import base64
 import json
+import math
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import httpx
 from sqlalchemy import or_, select
@@ -20,52 +21,52 @@ DOMAIN_CONFIGS: dict[str, dict[str, Any]] = {
     "web-development": {
         "name": "Web Development",
         "queries": [
-            "full stack web application in:name,description,readme stars:>80 archived:false fork:false",
-            "dashboard application react node in:name,description,readme stars:>80 archived:false fork:false",
-            "ecommerce platform nextjs in:name,description,readme stars:>80 archived:false fork:false",
-            "booking system web app in:name,description,readme stars:>60 archived:false fork:false",
+            "full stack web app demo in:name,description,readme stars:>80 archived:false fork:false",
+            "dashboard web application live demo in:name,description,readme stars:>80 archived:false fork:false",
+            "ecommerce web app deployed in:name,description,readme stars:>80 archived:false fork:false",
+            "booking system web app demo in:name,description,readme stars:>60 archived:false fork:false",
         ],
-        "keywords": {"web", "frontend", "backend", "dashboard", "cms", "ecommerce", "portal", "saas"},
+        "keywords": {"web", "frontend", "backend", "dashboard", "cms", "ecommerce", "portal", "saas", "website", "fullstack"},
     },
     "artificial-intelligence": {
         "name": "Artificial Intelligence",
         "queries": [
-            "ai application assistant in:name,description,readme stars:>70 archived:false fork:false",
-            "llm app chatbot in:name,description,readme stars:>70 archived:false fork:false",
-            "computer vision application in:name,description,readme stars:>70 archived:false fork:false",
-            "generative ai project in:name,description,readme stars:>60 archived:false fork:false",
+            "ai assistant web app demo in:name,description,readme stars:>70 archived:false fork:false",
+            "llm chatbot application live demo in:name,description,readme stars:>70 archived:false fork:false",
+            "computer vision web app deployed in:name,description,readme stars:>70 archived:false fork:false",
+            "generative ai application demo in:name,description,readme stars:>60 archived:false fork:false",
         ],
-        "keywords": {"ai", "assistant", "agent", "llm", "computer-vision", "nlp", "chatbot"},
+        "keywords": {"ai", "assistant", "agent", "llm", "computer-vision", "nlp", "chatbot", "rag", "vision"},
     },
     "machine-learning": {
         "name": "Machine Learning",
         "queries": [
-            "machine learning project in:name,description,readme stars:>70 archived:false fork:false",
-            "ml pipeline application in:name,description,readme stars:>70 archived:false fork:false",
-            "recommendation system in:name,description,readme stars:>60 archived:false fork:false",
-            "predictive analytics model app in:name,description,readme stars:>60 archived:false fork:false",
+            "machine learning web app demo in:name,description,readme stars:>70 archived:false fork:false",
+            "ml application live demo in:name,description,readme stars:>70 archived:false fork:false",
+            "recommendation system web app in:name,description,readme stars:>60 archived:false fork:false",
+            "predictive analytics dashboard demo in:name,description,readme stars:>60 archived:false fork:false",
         ],
-        "keywords": {"machine-learning", "ml", "model", "training", "prediction", "recommendation"},
+        "keywords": {"machine-learning", "ml", "prediction", "recommendation", "forecasting", "classification", "regression"},
     },
     "data-science": {
         "name": "Data Science",
         "queries": [
-            "data science dashboard in:name,description,readme stars:>60 archived:false fork:false",
-            "analytics platform in:name,description,readme stars:>60 archived:false fork:false",
-            "visualization app dataset in:name,description,readme stars:>60 archived:false fork:false",
-            "business intelligence project in:name,description,readme stars:>60 archived:false fork:false",
+            "data science dashboard demo in:name,description,readme stars:>60 archived:false fork:false",
+            "analytics platform live demo in:name,description,readme stars:>60 archived:false fork:false",
+            "visualization web app deployed in:name,description,readme stars:>60 archived:false fork:false",
+            "business intelligence dashboard demo in:name,description,readme stars:>60 archived:false fork:false",
         ],
-        "keywords": {"data", "analytics", "visualization", "dashboard", "dataset", "etl", "business-intelligence"},
+        "keywords": {"data", "analytics", "visualization", "dashboard", "etl", "business-intelligence", "reporting", "streamlit"},
     },
     "cybersecurity": {
         "name": "Cybersecurity",
         "queries": [
-            "security monitoring dashboard in:name,description,readme stars:>60 archived:false fork:false",
-            "vulnerability scanner application in:name,description,readme stars:>60 archived:false fork:false",
-            "threat detection project in:name,description,readme stars:>60 archived:false fork:false",
-            "security lab platform in:name,description,readme stars:>60 archived:false fork:false",
+            "security monitoring dashboard demo in:name,description,readme stars:>60 archived:false fork:false",
+            "vulnerability scanner web app live demo in:name,description,readme stars:>60 archived:false fork:false",
+            "threat detection dashboard deployed in:name,description,readme stars:>60 archived:false fork:false",
+            "security lab platform demo in:name,description,readme stars:>60 archived:false fork:false",
         ],
-        "keywords": {"security", "cybersecurity", "threat", "scanner", "siem", "forensics", "vulnerability"},
+        "keywords": {"security", "cybersecurity", "threat", "scanner", "siem", "forensics", "vulnerability", "soc", "monitoring"},
     },
 }
 
@@ -74,11 +75,60 @@ EXCLUSION_KEYWORDS = {
     "tutorial", "example", "course", "workshop", "awesome", "cheatsheet", "cookbook", "reference",
     "docs", "documentation", "book", "books", "free-programming-books", "snippets", "component-library", "ui-library", "toolkit", "cli",
     "awesome-list", "curated-list", "reading-list", "interview-questions",
+    "dataset", "datasets", "vscode", "vs code", "extension", "openapi", "swagger", "postman", "collection",
+    "devtool", "developer tool", "codegen", "generator", "api client", "chrome extension", "browser extension",
 }
 APP_KEYWORDS = {
     "app", "application", "platform", "dashboard", "system", "portal", "service", "management",
     "analytics", "monitoring", "automation", "booking", "chat", "marketplace", "tracking",
 }
+END_USER_PROJECT_KEYWORDS = {
+    "customer", "user", "admin", "tenant", "booking", "order", "payment", "inventory", "crm",
+    "erp", "cms", "blog", "store", "shop", "meeting", "video call", "collaboration", "workspace",
+    "reporting", "visualization", "scanner", "detection", "alerts", "case management", "telemedicine",
+}
+LIVE_HOST_KEYWORDS = ("vercel.app", "netlify.app", "render.com", "railway.app", "fly.dev", "pages.dev", "web.app", "onrender.com", "streamlit.app", "huggingface.co/spaces")
+LIVE_HINT_KEYWORDS = {"demo", "live demo", "preview", "deployed", "production", "try it", "visit", "open app", "website"}
+APP_README_KEYWORDS = {
+    "authentication", "login", "signup", "dashboard", "screenshots", "features", "deployment",
+    "user", "admin", "workflow", "web app", "streamlit", "gradio", "frontend", "api",
+}
+LIBRARY_SIGNAL_KEYWORDS = {
+    "library", "framework", "sdk", "package", "module", "toolkit", "plugin", "extension",
+    "boilerplate", "starter", "template", "component library", "ui library", "design system",
+    "engine", "runtime", "compiler", "dataset", "benchmark", "model zoo", "weights",
+    "vscode", "vs code", "openapi", "swagger", "postman", "collection", "codegen", "generator",
+    "api client", "developer tool", "devtool", "chrome extension", "browser extension", "copilot",
+}
+LIBRARY_TOPICS = {
+    "library", "framework", "sdk", "package", "api-client", "plugin", "extension", "boilerplate",
+    "template", "starter", "design-system", "component-library", "toolkit", "dataset", "benchmark",
+    "openapi", "swagger", "postman", "vscode-extension", "chrome-extension", "browser-extension",
+    "developer-tools", "cli", "api-wrapper", "sdk-generator",
+}
+FOUNDATIONAL_REPO_NAMES = {
+    "pytorch", "tensorflow", "keras", "scikitlearn", "sklearn", "numpy", "pandas", "scipy",
+    "matplotlib", "seaborn", "opencv", "pillow", "xgboost", "lightgbm", "catboost", "transformers",
+    "diffusers", "langchain", "llamaindex", "react", "vue", "angular", "svelte", "nextjs", "nuxt",
+    "django", "flask", "fastapi", "express", "nestjs", "spring", "rails", "laravel", "bootstrap",
+    "tailwindcss", "electron", "metasploit", "nmap", "wireshark", "suricata", "zeek", "kali",
+}
+NON_PROJECT_REPO_NAMES = {
+    "chatgpt-vscode", "openapi-generator", "swagger-ui", "swagger-editor", "postman-collection",
+    "awesome-chatgpt-prompts", "public-apis", "datasets", "dataset", "openapi-typescript",
+}
+STUDENT_SCALE_EXCLUSION_KEYWORDS = {
+    "distributed system", "distributed training", "deep learning framework", "machine learning framework",
+    "database engine", "container runtime", "orchestration platform", "operating system", "compiler",
+    "programming language", "browser engine", "inference engine", "model weights", "foundation model",
+    "vscode extension", "visual studio code extension", "openapi specification", "swagger specification",
+    "api schema", "prompt library", "prompt collection", "dataset collection", "developer productivity",
+}
+MAX_STUDENT_PROJECT_STARS = 15000
+MAX_STUDENT_PROJECT_FORKS = 3000
+MAX_STUDENT_PROJECT_SIZE = 150000
+MAX_STUDENT_PROJECT_DURATION = 80
+MAX_GITHUB_SEARCH_RESULTS = 1000
 
 DIFFICULTY_RATIOS: dict[str, float] = {
     "EASY": 0.30,
@@ -142,6 +192,30 @@ def build_headers() -> dict[str, str]:
     return headers
 
 
+def _compute_github_retry_delay(response: httpx.Response) -> float:
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return max(float(retry_after), 1.0)
+        except ValueError:
+            pass
+
+    reset_header = response.headers.get("X-RateLimit-Reset")
+    if reset_header:
+        try:
+            reset_ts = float(reset_header)
+            now_ts = datetime.now(timezone.utc).timestamp()
+            return max(reset_ts - now_ts + 1, 1.0)
+        except ValueError:
+            pass
+
+    remaining = response.headers.get("X-RateLimit-Remaining")
+    if remaining == "0":
+        return 60.0
+
+    return 20.0
+
+
 def normalize_text(*parts: str | None) -> str:
     return " ".join(part.strip().lower() for part in parts if part).strip()
 
@@ -153,6 +227,113 @@ def slugify_repo(full_name: str) -> str:
 def normalize_base_name(name: str) -> str:
     normalized = re.sub(r"(?:[-_](?:v|version)?\d+)$", "", name.lower())
     return re.sub(r"[^a-z0-9]+", "", normalized)
+
+
+ProgressCallback = Callable[[str, dict[str, Any]], None]
+
+
+def has_live_demo(repo: dict[str, Any], readme_text: str) -> bool:
+    return pick_live_url(repo, readme_text) is not None
+
+
+def is_foundational_or_library_repo(repo: dict[str, Any], readme_text: str, live_url: str | None) -> bool:
+    metadata_text = normalize_text(repo.get("name"), repo.get("full_name"), repo.get("description"), " ".join(repo.get("topics") or []))
+    readme_excerpt = normalize_text(readme_text[:3000])
+    combined = f"{metadata_text} {readme_excerpt}".strip()
+    topic_set = {str(topic).lower() for topic in (repo.get("topics") or [])}
+    base_name = normalize_base_name(repo.get("name") or "")
+
+    if base_name in FOUNDATIONAL_REPO_NAMES or base_name in NON_PROJECT_REPO_NAMES:
+        return True
+
+    library_score = 0
+    app_score = 0
+
+    for keyword in LIBRARY_SIGNAL_KEYWORDS:
+        if keyword in metadata_text:
+            library_score += 3
+        elif keyword in combined:
+            library_score += 1
+
+    library_score += sum(2 for topic in topic_set if topic in LIBRARY_TOPICS)
+
+    if any(phrase in combined for phrase in (
+        "official library",
+        "official framework",
+        "python package",
+        "javascript library",
+        "typescript library",
+        "sdk for",
+        "install via pip",
+        "install via npm",
+    )):
+        library_score += 4
+
+    if live_url:
+        app_score += 6
+
+    for keyword in APP_KEYWORDS | LIVE_HINT_KEYWORDS | APP_README_KEYWORDS:
+        if keyword in combined:
+            app_score += 1
+
+    if any(topic in topic_set for topic in {"webapp", "web-app", "dashboard", "saas", "streamlit", "gradio", "fullstack"}):
+        app_score += 3
+
+    return library_score >= max(4, app_score + 2)
+
+
+def has_end_user_project_signals(repo: dict[str, Any], readme_text: str, live_url: str | None) -> bool:
+    if not live_url:
+        return False
+
+    metadata_text = normalize_text(repo.get("name"), repo.get("description"), " ".join(repo.get("topics") or []))
+    readme_excerpt = normalize_text(readme_text[:5000])
+    combined = f"{metadata_text} {readme_excerpt}".strip()
+
+    negative_signals = {
+        "vscode extension", "visual studio code extension", "chrome extension", "browser extension",
+        "openapi", "swagger", "postman", "dataset", "sdk", "library", "framework", "cli",
+        "developer tool", "code generator", "api client", "copilot extension",
+    }
+    if any(signal in combined for signal in negative_signals):
+        return False
+
+    positive_score = 0
+    if any(keyword in combined for keyword in APP_KEYWORDS):
+        positive_score += 2
+    if any(keyword in combined for keyword in END_USER_PROJECT_KEYWORDS):
+        positive_score += 2
+    if any(keyword in combined for keyword in APP_README_KEYWORDS):
+        positive_score += 1
+    if any(keyword in combined for keyword in LIVE_HINT_KEYWORDS):
+        positive_score += 1
+    if any(keyword in combined for keyword in {"screenshots", "demo", "deploy", "hosted", "production"}):
+        positive_score += 1
+
+    return positive_score >= 4
+
+
+def is_student_buildable_repo(repo: dict[str, Any], readme_text: str, live_url: str | None, min_time: int, max_time: int) -> bool:
+    if not live_url:
+        return False
+
+    if max_time > MAX_STUDENT_PROJECT_DURATION:
+        return False
+
+    if (repo.get("stargazers_count") or 0) > MAX_STUDENT_PROJECT_STARS:
+        return False
+
+    if (repo.get("forks_count") or 0) > MAX_STUDENT_PROJECT_FORKS:
+        return False
+
+    if (repo.get("size") or 0) > MAX_STUDENT_PROJECT_SIZE:
+        return False
+
+    combined = normalize_text(repo.get("name"), repo.get("description"), " ".join(repo.get("topics") or []), readme_text[:4000])
+    if any(keyword in combined for keyword in STUDENT_SCALE_EXCLUSION_KEYWORDS):
+        return False
+
+    return True
 
 
 def difficulty_from_repo(stars: int, size: int, topics: Iterable[str]) -> str:
@@ -431,13 +612,22 @@ def repo_is_candidate(repo: dict[str, Any], domain_keywords: set[str], min_stars
     if not search_text or len(search_text) < 25:
         return False
 
+    if normalize_base_name(repo.get("name") or "") in FOUNDATIONAL_REPO_NAMES | NON_PROJECT_REPO_NAMES:
+        return False
+
     if any(keyword in search_text for keyword in EXCLUSION_KEYWORDS):
+        return False
+
+    if any(keyword in search_text for keyword in LIBRARY_SIGNAL_KEYWORDS):
         return False
 
     if any(flag in repo_name for flag in ["awesome", "free-programming-books", "programming-books", "tutorial", "course"]):
         return False
 
-    if not any(keyword in search_text for keyword in APP_KEYWORDS | domain_keywords):
+    if not any(keyword in search_text for keyword in domain_keywords):
+        return False
+
+    if not any(keyword in search_text for keyword in APP_KEYWORDS | LIVE_HINT_KEYWORDS):
         return False
 
     if require_demo and not repo.get("homepage"):
@@ -459,17 +649,58 @@ def score_repo(repo: dict[str, Any], domain_keywords: set[str], has_readme: bool
 
 
 async def github_get(client: httpx.AsyncClient, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
-    response = await client.get(path, params=params, headers=build_headers())
+    max_attempts = 5
+    response: httpx.Response | None = None
+    for attempt in range(1, max_attempts + 1):
+        response = await client.get(path, params=params, headers=build_headers())
+
+        if response.status_code in {403, 429}:
+            body_text = response.text.lower()
+            is_rate_limited = (
+                response.status_code == 429
+                or response.headers.get("X-RateLimit-Remaining") == "0"
+                or "rate limit" in body_text
+                or "secondary rate limit" in body_text
+                or "abuse detection" in body_text
+            )
+
+            if is_rate_limited and attempt < max_attempts:
+                delay = _compute_github_retry_delay(response)
+                delay = min(max(delay, 1.0), 300.0)
+                print(f"[GitHub] Rate limit hit for {path}. Waiting {math.ceil(delay)}s before retry {attempt}/{max_attempts}...")
+                await asyncio.sleep(delay)
+                continue
+
+        response.raise_for_status()
+        return response
+
+    if response is None:
+        raise RuntimeError(f"GitHub request did not execute for {path}")
+
     response.raise_for_status()
     return response
 
 
 async def fetch_search_page(client: httpx.AsyncClient, query: str, page: int, per_page: int) -> list[dict[str, Any]]:
-    response = await github_get(
-        client,
-        "https://api.github.com/search/repositories",
-        {"q": query, "sort": "stars", "order": "desc", "page": page, "per_page": per_page},
-    )
+    if per_page <= 0:
+        return []
+
+    max_allowed_page = max(1, math.ceil(MAX_GITHUB_SEARCH_RESULTS / per_page))
+    if page > max_allowed_page:
+        return []
+
+    try:
+        response = await github_get(
+            client,
+            "https://api.github.com/search/repositories",
+            {"q": query, "sort": "stars", "order": "desc", "page": page, "per_page": per_page},
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 422:
+            print(f"[GitHub] Search page {page} exceeded GitHub search result limits for query: {query}")
+            return []
+        raise
+
     return response.json().get("items", [])
 
 
@@ -510,7 +741,7 @@ def pick_live_url(repo: dict[str, Any], readme_text: str) -> str | None:
         return homepage
 
     for url in extract_links(readme_text):
-        if any(host in url for host in ["vercel.app", "netlify.app", "render.com", "railway.app", "fly.dev", "pages.dev", "web.app"]):
+        if any(host in url for host in LIVE_HOST_KEYWORDS):
             return url
     return None
 
@@ -544,6 +775,16 @@ async def enrich_candidate(
     score = score_repo(repo, domain_keywords, bool(readme_text), has_demo)
     difficulty = difficulty_from_repo(repo.get("stargazers_count") or 0, repo.get("size") or 0, repo.get("topics") or [])
     min_time, max_time, deadline = estimate_duration(repo.get("stargazers_count") or 0, repo.get("size") or 0, readme_text)
+
+    if is_foundational_or_library_repo(repo, readme_text, live_url):
+        raise ValueError("Repository looks like a library/framework, not a live student project")
+
+    if not is_student_buildable_repo(repo, readme_text, live_url, min_time, max_time):
+        raise ValueError("Repository is not a live student-buildable project")
+
+    if not has_end_user_project_signals(repo, readme_text, live_url):
+        raise ValueError("Repository does not look like an end-user project")
+
     tech_stack, technical_skills, tools_used, requirements_text, evaluation_criteria = extract_requirements(
         domain_name, repo, readme_text, languages
     )
@@ -639,45 +880,116 @@ async def enrich_candidate(
 
 async def scrape_domain_candidates(
     domain_slug: str,
-    target_count: int = 25,
+    target_count: int = 100,
     per_page: int = 30,
-    max_pages_per_query: int = 3,
+    max_pages_per_query: int = 8,
     min_stars: int = 60,
     require_demo: bool = False,
     use_ai: bool = False,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[ScrapeCandidate]:
     config = DOMAIN_CONFIGS[domain_slug]
     collected: list[ScrapeCandidate] = []
     seen_repos: set[str] = set()
     seen_names: set[str] = set()
-    discovery_target = max(target_count * 3, target_count)
+    discovery_target = max(target_count * 8, target_count + 100)
+    effective_max_pages = min(max_pages_per_query, max(1, math.ceil(MAX_GITHUB_SEARCH_RESULTS / per_page)))
+    stats = {
+        "queries_total": len(config["queries"]),
+        "queries_done": 0,
+        "pages_total": len(config["queries"]) * effective_max_pages,
+        "pages_done": 0,
+        "scanned": 0,
+        "accepted": 0,
+        "duplicate": 0,
+        "prefilter_rejected": 0,
+        "enrichment_rejected": 0,
+        "missing_live_demo": 0,
+        "target": target_count,
+        "discovery_target": discovery_target,
+        "domain_name": config["name"],
+    }
+
+    if progress_callback:
+        progress_callback("domain_start", dict(stats))
 
     async with httpx.AsyncClient(timeout=20.0) as client:
-        for query in config["queries"]:
-            for page in range(1, max_pages_per_query + 1):
+        for query_index, query in enumerate(config["queries"], start=1):
+            if progress_callback:
+                progress_callback(
+                    "query_start",
+                    {
+                        **stats,
+                        "query": query,
+                        "query_index": query_index,
+                    },
+                )
+
+            for page in range(1, effective_max_pages + 1):
                 repos = await fetch_search_page(client, query, page, per_page)
+                stats["pages_done"] += 1
+
+                if progress_callback:
+                    progress_callback(
+                        "page_fetched",
+                        {
+                            **stats,
+                            "query": query,
+                            "query_index": query_index,
+                            "page": page,
+                            "fetched": len(repos),
+                        },
+                    )
+
                 if not repos:
                     break
 
                 for repo in repos:
+                    stats["scanned"] += 1
                     full_name = repo["full_name"]
                     base_name = normalize_base_name(repo["name"])
                     if full_name in seen_repos or base_name in seen_names:
+                        stats["duplicate"] += 1
                         continue
                     if not repo_is_candidate(repo, config["keywords"], min_stars, require_demo):
+                        stats["prefilter_rejected"] += 1
                         continue
 
-                    candidate = await enrich_candidate(
-                        repo=repo,
-                        domain_slug=domain_slug,
-                        domain_name=config["name"],
-                        domain_keywords=config["keywords"],
-                        client=client,
-                        use_ai=use_ai,
-                    )
+                    try:
+                        candidate = await enrich_candidate(
+                            repo=repo,
+                            domain_slug=domain_slug,
+                            domain_name=config["name"],
+                            domain_keywords=config["keywords"],
+                            client=client,
+                            use_ai=use_ai,
+                        )
+                    except ValueError:
+                        stats["enrichment_rejected"] += 1
+                        continue
+
+                    if not candidate.live_url:
+                        stats["missing_live_demo"] += 1
+                        continue
+
                     seen_repos.add(full_name)
                     seen_names.add(base_name)
                     collected.append(candidate)
+                    stats["accepted"] += 1
+
+                    if progress_callback and (
+                        stats["accepted"] <= 5
+                        or stats["accepted"] % 10 == 0
+                        or len(collected) >= discovery_target
+                    ):
+                        progress_callback(
+                            "candidate_accepted",
+                            {
+                                **stats,
+                                "repo": full_name,
+                                "score": candidate.score,
+                            },
+                        )
 
                     if len(collected) >= discovery_target:
                         break
@@ -687,8 +999,23 @@ async def scrape_domain_candidates(
                 await asyncio.sleep(0.25)
             if len(collected) >= discovery_target:
                 break
+            stats["queries_done"] = query_index
 
-    return select_balanced_candidates(collected, target_count)
+        stats["queries_done"] = len(config["queries"])
+
+    selected = select_balanced_candidates(collected, target_count)
+
+    if progress_callback:
+        progress_callback(
+            "domain_complete",
+            {
+                **stats,
+                "selected": len(selected),
+                "collected": len(collected),
+            },
+        )
+
+    return selected
 
 
 async def ensure_domain(db: AsyncSession, domain_slug: str) -> Domain:

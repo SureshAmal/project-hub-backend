@@ -1,12 +1,8 @@
 import argparse
 import asyncio
 import json
-import sys
 from datetime import datetime
 from pathlib import Path
-
-basedir = Path(__file__).resolve().parent.parent
-sys.path.append(str(basedir))
 
 from src.core.database import AsyncSessionLocal
 from src.services.github_project_scraper import (  # noqa: E402
@@ -16,13 +12,48 @@ from src.services.github_project_scraper import (  # noqa: E402
     upsert_candidates,
 )
 
+BASEDIR = Path(__file__).resolve().parent.parent
+
+
+def emit_progress(event: str, payload: dict) -> None:
+    domain_name = payload.get("domain_name") or payload.get("domain") or "Unknown Domain"
+
+    if event == "domain_start":
+        print(
+            f"\n[{domain_name}] Starting discovery: target={payload['target']} discovery_target={payload['discovery_target']} queries={payload['queries_total']}"
+        )
+        return
+
+    if event == "query_start":
+        print(
+            f"[{domain_name}] Query {payload['query_index']}/{payload['queries_total']}: {payload['query']}"
+        )
+        return
+
+    if event == "page_fetched":
+        print(
+            f"[{domain_name}]  Page {payload['page']}: fetched={payload['fetched']} scanned={payload['scanned']} accepted={payload['accepted']} filtered={payload['prefilter_rejected'] + payload['enrichment_rejected'] + payload['duplicate']}"
+        )
+        return
+
+    if event == "candidate_accepted":
+        print(
+            f"[{domain_name}]  Accepted {payload['accepted']}/{payload['discovery_target']} -> {payload['repo']} (score={payload['score']})"
+        )
+        return
+
+    if event == "domain_complete":
+        print(
+            f"[{domain_name}] Completed: selected={payload['selected']} collected={payload['collected']} scanned={payload['scanned']} duplicates={payload['duplicate']} prefilter_rejected={payload['prefilter_rejected']} enrichment_rejected={payload['enrichment_rejected']}"
+        )
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Find GitHub projects that fit Project Hub collection requirements.")
     parser.add_argument("--domain", choices=[*DOMAIN_CONFIGS.keys(), "all"], default="all")
-    parser.add_argument("--target", type=int, default=20, help="Number of candidates per domain")
+    parser.add_argument("--target", type=int, default=100, help="Number of candidates per domain")
     parser.add_argument("--per-page", type=int, default=30)
-    parser.add_argument("--max-pages-per-query", type=int, default=3)
+    parser.add_argument("--max-pages-per-query", type=int, default=8)
     parser.add_argument("--min-stars", type=int, default=60)
     parser.add_argument("--require-demo", action="store_true", help="Only keep repositories with a live demo/homepage")
     parser.add_argument("--use-ai", action="store_true", help="Generate case-study fields using the configured AI service")
@@ -45,10 +76,11 @@ async def main() -> None:
             min_stars=args.min_stars,
             require_demo=args.require_demo,
             use_ai=args.use_ai,
+            progress_callback=emit_progress,
         )
         all_candidates.extend(candidates)
 
-    output_path = Path(args.output) if args.output else basedir / "output" / f"project-candidates-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.json"
+    output_path = Path(args.output) if args.output else BASEDIR / "output" / f"project-candidates-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.json"
     save_candidates_to_file(all_candidates, output_path)
 
     summary = {
