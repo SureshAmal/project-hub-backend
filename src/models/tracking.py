@@ -18,7 +18,7 @@ class Notification(Base):
     user_id: Mapped[str] = mapped_column("userId", ForeignKey("users.id", ondelete="CASCADE"), index=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     type: Mapped[str] = mapped_column(ENUM("NEW_COMMENT", "NEW_UPVOTE", "PROJECT_APPROVED", "PROJECT_REJECTED", name="NotificationType", create_type=False), nullable=False)
-    related_project_id: Mapped[Optional[str]] = mapped_column("relatedProjectId", String)
+    related_project_id: Mapped[Optional[str]] = mapped_column("related_project_id", String)
     is_read: Mapped[bool] = mapped_column("isRead", Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), default=get_utc_now)
     

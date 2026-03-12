@@ -53,7 +53,7 @@ class Project(Base):
     prerequisites: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
     deliverables: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
     requirements: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
-    requirements_text: Mapped[Optional[str]] = mapped_column("requirementsText", Text)
+    requirements_text: Mapped[Optional[str]] = mapped_column("requirements_text", Text)
     advanced_extensions: Mapped[Optional[str]] = mapped_column("advancedExtensions", Text)
     evaluation_criteria: Mapped[Optional[str]] = mapped_column("evaluationCriteria", Text)
 

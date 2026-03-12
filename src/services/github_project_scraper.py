@@ -519,19 +519,9 @@ def extract_requirements(domain_name: str, repo: dict[str, Any], readme_text: st
     topics = [topic for topic in (repo.get("topics") or []) if topic]
     lowered_readme = readme_text.lower()
     tech_stack = list(dict.fromkeys(languages + topics[:8]))
-    technical_skills = list(dict.fromkeys(tech_stack + [repo.get("language")] if repo.get("language") else tech_stack))
+    technical_skills_source = tech_stack + ([repo["language"]] if repo.get("language") else [])
+    technical_skills = list(dict.fromkeys(technical_skills_source))
     tools_used = [tool for tool in ["GitHub", "VS Code", "PostgreSQL", "Docker", "Jupyter"] if tool.lower() in lowered_readme or tool == "GitHub"]
-    concepts_used = [
-        concept for concept in [
-            "API Design", "Authentication", "Data Modeling", "Testing", "Deployment", "Visualization",
-            "Model Training", "Feature Engineering", "Threat Detection", "Input Validation",
-        ] if concept.lower().split()[0] in lowered_readme
-    ]
-    requirements = [
-        f"Study the repository architecture for {domain_name.lower()} workflows.",
-        "Set up the project locally and document the environment configuration.",
-        "Implement at least one meaningful enhancement or extension before submission.",
-    ]
     requirements_text = "Validate setup, core workflow, and deployment or execution steps before publishing the project brief."
     evaluation_criteria = "Assess correctness, code quality, documentation, usability, and domain relevance."
     return tech_stack, technical_skills, tools_used, requirements_text, evaluation_criteria
